@@ -1,0 +1,164 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id             Int              @id @default(autoincrement())
+  name           String
+  email          String           @unique
+  password       String
+  role           Role             @default(candidate)
+  picture        String           @default("")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  jobs           Job[]            @relation("PostedJobs")
+  applications   Application[]    @relation("ApplicantApplications")
+  employerProfile EmployerProfile?
+
+  @@map("users")
+}
+
+model EmployerProfile {
+  id                   Int      @id @default(autoincrement())
+  userId               Int      @unique @map("user_id")
+  companyName          String   @map("company_name")
+  companyLogo          String   @map("company_logo")
+  industry             String
+  website              String
+  headquartersLocation String   @map("headquarters_location")
+  companyDescription   String   @map("company_description")
+  contactEmail         String   @map("contact_email")
+  contactPhone         String   @map("contact_phone")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobs Job[]
+
+  @@index([companyName], map: "idx_employer_profiles_company_name")
+  @@map("employer_profiles")
+}
+
+model Job {
+  id                  Int              @id @default(autoincrement())
+  postedByUserId      Int              @map("posted_by_user_id")
+  employerProfileId   Int?             @map("employer_profile_id")
+  title               String
+  companyName         String           @map("company_name")
+  location            String
+  workplaceType       WorkplaceType    @map("workplace_type")
+  jobType             JobType          @map("job_type")
+  minSalary           Int              @map("min_salary")
+  maxSalary           Int              @map("max_salary")
+  currency            String           @default("INR")
+  experienceLevel     ExperienceLevel  @map("experience_level")
+  description         String
+  requirements        String[]
+  responsibilities    String[]
+  applicationDeadline DateTime         @db.Date @map("application_deadline")
+  peopleApplied       Int              @default(0) @map("people_applied")
+  status              JobStatus        @default(open)
+  createdAt           DateTime         @default(now()) @map("created_at")
+  updatedAt           DateTime         @updatedAt @map("updated_at")
+
+  jobSkills        JobSkill[]
+  applications     Application[]
+  postedByUser     User             @relation("PostedJobs", fields: [postedByUserId], references: [id], onDelete: Cascade)
+  employerProfile  EmployerProfile? @relation(fields: [employerProfileId], references: [id], onDelete: SetNull)
+
+  @@index([postedByUserId], map: "idx_jobs_posted_by_user_id")
+  @@index([employerProfileId], map: "idx_jobs_employer_profile_id")
+  @@index([createdAt(sort: Desc)], map: "idx_jobs_created_at")
+  @@index([location], map: "idx_jobs_location")
+  @@index([jobType], map: "idx_jobs_job_type")
+  @@index([status], map: "idx_jobs_status")
+
+  @@map("jobs")
+}
+
+model Application {
+  id              Int               @id @default(autoincrement())
+  jobId           Int               @map("job_id")
+  applicantUserId Int               @map("applicant_user_id")
+  status          ApplicationStatus @default(pending)
+  resumeUrl       String            @map("resume_url")
+  coverLetter     String?           @map("cover_letter")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  job       Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  applicant User @relation("ApplicantApplications", fields: [applicantUserId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, applicantUserId], map: "uniq_applications_job_applicant")
+  @@index([jobId], map: "idx_applications_job_id")
+  @@index([applicantUserId], map: "idx_applications_applicant_user_id")
+  @@index([status], map: "idx_applications_status")
+  @@map("applications")
+}
+
+model Skill {
+  id   Int    @id @default(autoincrement())
+  name String @unique @db.VarChar(100)
+
+  jobSkills JobSkill[]
+
+  @@map("skills")
+}
+
+model JobSkill {
+  jobId   Int @map("job_id")
+  skillId Int @map("skill_id")
+
+  job   Job   @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  skill Skill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@id([jobId, skillId])
+  @@index([skillId], map: "idx_job_skills_skill_id")
+
+  @@map("job_skills")
+}
+
+enum WorkplaceType {
+  remote
+  hybrid
+  on_site
+}
+
+enum JobType {
+  full_time
+  part_time
+  internship
+  freelance
+  contract
+}
+
+enum ExperienceLevel {
+  fresher
+  junior
+  intermediate
+  senior
+}
+
+enum JobStatus {
+  open
+  closed
+  draft
+  applied
+}
+
+enum ApplicationStatus {
+  pending
+  reviewed
+  accepted
+  rejected
+}
+
+enum Role {
+  employer
+  candidate
+}
