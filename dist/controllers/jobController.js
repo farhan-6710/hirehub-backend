@@ -102,10 +102,8 @@ const createJob = async (req, res) => {
                 error: 'Only employer accounts can create jobs',
             });
         }
-        const { title, companyName, location, workplaceType, jobType, minSalary, maxSalary, currency, experienceLevel, description, requirements, responsibilities, skills, applicationDeadline, } = req.body;
+        const { title, workplaceType, jobType, minSalary, maxSalary, currency, experienceLevel, description, requirements, responsibilities, skills, applicationDeadline, } = req.body;
         if (!title ||
-            !companyName ||
-            !location ||
             !workplaceType ||
             !jobType ||
             minSalary === undefined ||
@@ -118,7 +116,7 @@ const createJob = async (req, res) => {
             !skills ||
             !applicationDeadline) {
             return res.status(400).json({
-                error: 'title, companyName, location, workplaceType, jobType, minSalary, maxSalary, currency, experienceLevel, description, requirements, responsibilities, skills and applicationDeadline are required',
+                error: 'title, workplaceType, jobType, minSalary, maxSalary, currency, experienceLevel, description, requirements, responsibilities, skills and applicationDeadline are required',
             });
         }
         if (!Array.isArray(requirements) || requirements.length === 0) {
@@ -159,15 +157,19 @@ const createJob = async (req, res) => {
         const createdJob = await db_1.prisma.$transaction(async (tx) => {
             const employerProfile = await tx.employerProfile.findUnique({
                 where: { userId },
-                select: { id: true },
+                select: { id: true, companyName: true, headquartersLocation: true },
             });
+            if (!employerProfile?.companyName ||
+                !employerProfile?.headquartersLocation) {
+                throw new Error('EMPLOYER_PROFILE_INCOMPLETE');
+            }
             const job = await tx.job.create({
                 data: {
                     postedByUserId: userId,
                     employerProfileId: employerProfile?.id,
                     title,
-                    companyName,
-                    location,
+                    companyName: employerProfile.companyName,
+                    location: employerProfile.headquartersLocation,
                     workplaceType,
                     jobType,
                     minSalary: Number(minSalary),
@@ -227,6 +229,12 @@ const createJob = async (req, res) => {
         });
     }
     catch (error) {
+        if (error instanceof Error &&
+            error.message === 'EMPLOYER_PROFILE_INCOMPLETE') {
+            return res.status(400).json({
+                error: 'Please complete your employer profile with company name and headquarters location before posting a job',
+            });
+        }
         console.error('Error in createJob:', error);
         return res.status(500).json({
             error: 'internal server error',

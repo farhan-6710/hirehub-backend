@@ -11,6 +11,7 @@ router.use(authMiddleware_1.protect);
 router.get('/dashboard', employerController_1.getEmployerDashboard);
 router.get('/profile', employerController_1.getEmployerProfile);
 router.get('/my-jobs', employerController_1.getEmployerJobs);
+router.delete('/jobs/:jobId', employerController_1.deleteEmployerJob);
 router.get('/jobs/:jobId/applications', employerController_1.getJobApplicationsForEmployer);
 router.patch('/applications/:applicationId/status', employerController_1.updateApplicationStatus);
 exports.default = router;

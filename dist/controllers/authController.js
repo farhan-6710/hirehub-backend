@@ -9,9 +9,27 @@ const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const crypto_1 = __importDefault(require("crypto"));
 const generateToken_1 = require("../utils/generateToken");
 const googleAuth_1 = require("../utils/googleAuth");
+const encodeGoogleState = (state) => {
+    return Buffer.from(JSON.stringify(state), 'utf8').toString('base64url');
+};
+const decodeGoogleState = (rawState) => {
+    if (!rawState)
+        return {};
+    try {
+        const decoded = Buffer.from(rawState, 'base64url').toString('utf8');
+        const parsed = JSON.parse(decoded);
+        if (parsed.role === 'candidate' || parsed.role === 'employer') {
+            return { role: parsed.role };
+        }
+        return {};
+    }
+    catch {
+        return {};
+    }
+};
 const signup = async (req, res) => {
     try {
-        const { name, email, password, role, } = req.body;
+        const { name, email, password, role } = req.body;
         if (!name || !email || !password) {
             return res.status(400).json({
                 error: 'name, email and password are required',
@@ -162,15 +180,20 @@ const getMe = async (req, res) => {
 };
 exports.getMe = getMe;
 const googleAuthInit = async (req, res) => {
-    console.log('DEBUG_OAUTH_ENV', {
-        client_id: process.env.GOOGLE_CLIENT_ID,
-        redirect_uri: process.env.GOOGLE_REDIRECT_URL,
-        client: googleAuth_1.googleClient._clientId,
-    });
+    const requestedRole = req.query.role === 'employer'
+        ? 'employer'
+        : req.query.role === 'candidate'
+            ? 'candidate'
+            : undefined;
+    const state = requestedRole
+        ? encodeGoogleState({ role: requestedRole })
+        : undefined;
     const url = googleAuth_1.googleClient.generateAuthUrl({
         access_type: 'offline',
         scope: ['profile', 'email'],
         prompt: 'consent',
+        redirect_uri: googleAuth_1.GOOGLE_OAUTH_REDIRECT_URL,
+        state,
     });
     res.redirect(url);
 };
@@ -178,10 +201,15 @@ exports.googleAuthInit = googleAuthInit;
 const googleAuthCallback = async (req, res) => {
     try {
         const code = req.query.code;
+        const state = req.query.state;
         if (!code) {
             return res.status(400).json({ error: 'OAuth code missing' });
         }
-        const { tokens } = await googleAuth_1.googleClient.getToken(code);
+        const { role: selectedRoleFromState } = decodeGoogleState(state);
+        const { tokens } = await googleAuth_1.googleClient.getToken({
+            code,
+            redirect_uri: googleAuth_1.GOOGLE_OAUTH_REDIRECT_URL,
+        });
         googleAuth_1.googleClient.setCredentials(tokens);
         const ticket = await googleAuth_1.googleClient.verifyIdToken({
             idToken: tokens.id_token,
@@ -207,7 +235,7 @@ const googleAuthCallback = async (req, res) => {
                     email,
                     password: hashedPassword,
                     picture,
-                    role: 'candidate',
+                    role: selectedRoleFromState ?? 'candidate',
                 },
             });
         }

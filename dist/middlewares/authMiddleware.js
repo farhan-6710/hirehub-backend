@@ -30,7 +30,7 @@ const protect = async (req, res, next) => {
         const decoded = jsonwebtoken_1.default.verify(token, secret);
         const user = await db_1.prisma.user.findUnique({
             where: { id: decoded.id },
-            select: { id: true, email: true, name: true, picture: true },
+            select: { id: true, email: true, name: true, picture: true, role: true },
         });
         if (!user) {
             res.status(401).json({ success: false, error: 'Unauthorized' });

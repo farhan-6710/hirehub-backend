@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateApplicationStatus = exports.getJobApplicationsForEmployer = exports.getEmployerJobs = exports.getEmployerProfile = exports.getEmployerDashboard = void 0;
+exports.updateApplicationStatus = exports.getJobApplicationsForEmployer = exports.deleteEmployerJob = exports.getEmployerJobs = exports.getEmployerProfile = exports.getEmployerDashboard = void 0;
 const db_1 = require("../config/db");
 const normalizeLegacyStatus = (status) => {
     if (status === 'review' || status === 'interview')
@@ -14,28 +14,6 @@ const normalizeLegacyStatus = (status) => {
         return status;
     }
     return 'pending';
-};
-const resolveStatusForDatabase = async (requestedStatus) => {
-    const enumRows = await db_1.prisma.$queryRaw `
-    SELECT e.enumlabel
-    FROM pg_type t
-    JOIN pg_enum e ON t.oid = e.enumtypid
-    WHERE t.typname = 'ApplicationStatus'
-  `;
-    const available = new Set(enumRows.map((row) => row.enumlabel));
-    if (available.has(requestedStatus)) {
-        return requestedStatus;
-    }
-    if (requestedStatus === 'reviewed') {
-        if (available.has('review'))
-            return 'review';
-        if (available.has('interview'))
-            return 'interview';
-    }
-    if (requestedStatus === 'accepted' && available.has('hired')) {
-        return 'hired';
-    }
-    return null;
 };
 const ensureEmployerRole = async (userId) => {
     const user = await db_1.prisma.user.findUnique({
@@ -94,24 +72,24 @@ const getEmployerDashboard = async (req, res) => {
                 take: 8,
             }),
         ]);
-        const [reviewedCountRows, acceptedCountRows] = await Promise.all([
-            db_1.prisma.$queryRaw `
-        SELECT COUNT(*)::int AS count
-        FROM applications a
-        INNER JOIN jobs j ON j.id = a.job_id
-        WHERE j.posted_by_user_id = ${userId}
-          AND a.status::text IN ('reviewed', 'review', 'interview')
-      `,
-            db_1.prisma.$queryRaw `
-        SELECT COUNT(*)::int AS count
-        FROM applications a
-        INNER JOIN jobs j ON j.id = a.job_id
-        WHERE j.posted_by_user_id = ${userId}
-          AND a.status::text IN ('accepted', 'hired')
-      `,
+        const [reviewedApplications, acceptedCandidates] = await Promise.all([
+            db_1.prisma.application.count({
+                where: {
+                    job: {
+                        postedByUserId: userId,
+                    },
+                    status: 'reviewed',
+                },
+            }),
+            db_1.prisma.application.count({
+                where: {
+                    job: {
+                        postedByUserId: userId,
+                    },
+                    status: 'accepted',
+                },
+            }),
         ]);
-        const reviewedApplications = Number(reviewedCountRows[0]?.count ?? 0);
-        const acceptedCandidates = Number(acceptedCountRows[0]?.count ?? 0);
         return res.status(200).json({
             status: 'success',
             dashboardStats: {
@@ -221,6 +199,42 @@ const getEmployerJobs = async (req, res) => {
     }
 };
 exports.getEmployerJobs = getEmployerJobs;
+const deleteEmployerJob = async (req, res) => {
+    try {
+        const userId = req.user?.id;
+        if (!userId) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+        const isEmployer = await ensureEmployerRole(userId);
+        if (!isEmployer) {
+            return res
+                .status(403)
+                .json({ error: 'Only employer accounts can access this route' });
+        }
+        const jobId = Number(req.params.jobId);
+        if (!Number.isFinite(jobId)) {
+            return res.status(400).json({ error: 'jobId must be a valid number' });
+        }
+        const deleted = await db_1.prisma.job.deleteMany({
+            where: {
+                id: jobId,
+                postedByUserId: userId,
+            },
+        });
+        if (deleted.count === 0) {
+            return res.status(404).json({ error: 'Job not found for this employer' });
+        }
+        return res.status(200).json({
+            status: 'success',
+            message: 'Job deleted successfully',
+        });
+    }
+    catch (error) {
+        console.error('Error in deleteEmployerJob:', error);
+        return res.status(500).json({ error: 'internal server error' });
+    }
+};
+exports.deleteEmployerJob = deleteEmployerJob;
 const getJobApplicationsForEmployer = async (req, res) => {
     try {
         const userId = req.user?.id;
@@ -308,14 +322,21 @@ const updateApplicationStatus = async (req, res) => {
                 .status(400)
                 .json({ error: 'applicationId must be a valid number' });
         }
-        const { status } = req.body;
+        const rawStatus = String(req.body.status ?? '')
+            .trim()
+            .toLowerCase();
+        const normalizedIncomingStatus = rawStatus === 'review' || rawStatus === 'interview'
+            ? 'reviewed'
+            : rawStatus === 'hired'
+                ? 'accepted'
+                : rawStatus;
         const allowedStatuses = [
             'pending',
             'reviewed',
             'accepted',
             'rejected',
         ];
-        if (!status || !allowedStatuses.includes(status)) {
+        if (!allowedStatuses.includes(normalizedIncomingStatus)) {
             return res.status(400).json({
                 error: 'status must be one of pending, reviewed, accepted, rejected',
             });
@@ -327,32 +348,19 @@ const updateApplicationStatus = async (req, res) => {
                     postedByUserId: userId,
                 },
             },
+            select: { id: true },
         });
         if (!existing) {
             return res
                 .status(404)
                 .json({ error: 'Application not found for this employer' });
         }
-        const statusToPersist = await resolveStatusForDatabase(status);
-        if (!statusToPersist) {
-            return res.status(400).json({
-                error: 'Requested status is not supported by current database enum',
-            });
-        }
-        await db_1.prisma.$executeRaw `
-      UPDATE applications
-      SET status = ${statusToPersist}::text::"ApplicationStatus",
-          updated_at = NOW()
-      WHERE id = ${applicationId}
-    `;
-        const updated = await db_1.prisma.application.findUnique({
+        const updated = await db_1.prisma.application.update({
             where: { id: applicationId },
+            data: {
+                status: normalizedIncomingStatus,
+            },
         });
-        if (!updated) {
-            return res
-                .status(404)
-                .json({ error: 'Application not found after update' });
-        }
         return res.status(200).json({
             status: 'success',
             application: {

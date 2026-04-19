@@ -13,7 +13,7 @@ const main = async () => {
     }
     const profile = await db_1.prisma.employerProfile.findUnique({
         where: { userId: user.id },
-        select: { id: true },
+        select: { id: true, companyName: true },
     });
     if (!profile) {
         throw new Error('Employer profile not found. Run seed:employer-profile first.');
@@ -22,7 +22,6 @@ const main = async () => {
         const existing = await db_1.prisma.job.findFirst({
             where: {
                 title: seed.title,
-                companyName: seed.companyName,
                 postedByUserId: user.id,
             },
             select: { id: true },
@@ -31,6 +30,7 @@ const main = async () => {
             ? await db_1.prisma.job.update({
                 where: { id: existing.id },
                 data: {
+                    companyName: profile.companyName,
                     location: seed.location,
                     workplaceType: seed.workplaceType,
                     jobType: seed.jobType,
@@ -51,7 +51,7 @@ const main = async () => {
                     postedByUserId: user.id,
                     employerProfileId: profile.id,
                     title: seed.title,
-                    companyName: seed.companyName,
+                    companyName: profile.companyName,
                     location: seed.location,
                     workplaceType: seed.workplaceType,
                     jobType: seed.jobType,
