@@ -7,7 +7,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon",
     "lint": "eslint 'src/**/*.ts'",
-    "build": "tsc",
+    "build": "npx prisma generate && npx prisma migrate deploy && tsc",
     "start": "node dist/server.js",
     "seed:user": "bun run src/seeds/seedUser.ts",
     "seed:employer-profile": "bun run src/seeds/seedEmployerProfile.ts",
