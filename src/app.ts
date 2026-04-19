@@ -1,5 +1,5 @@
 import express from 'express';
-import { errorHandler } from '../src/middlewares/errorHandler';
+import { errorHandler } from './middlewares/errorHandler';
 import authRoutes from './routes/authRoutes';
 import jobRoutes from './routes/jobRoutes';
 import employerRoutes from './routes/employerRoutes';
